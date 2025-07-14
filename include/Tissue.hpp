@@ -20,6 +20,9 @@
  #define __TISSUE__
 #include<vector>
 #include"Cell.hpp"
+#include<string>
+#include<functional>
+#include<unordered_map>
 
 namespace cudaDPM{
   class Tissue3D{
@@ -30,14 +33,30 @@ namespace cudaDPM{
       int NCELLS;
       int VertDOF;
       int TriDOF;
-      float Kc;
+      float Kre;
+      float Kat;
       float L;
-      float U;
-
+      bool PBC;
+      std::unordered_map<std::string, std::function<void(Tissue3D*)>> methods{
+        {"SimpleSpring",&Tissue3D::SimpleSpringAttraction},
+        {"CatchBond",&Tissue3D::CatchBondAttraction},
+        {"SlipBond",&Tissue3D::SlipBondAttraction}
+      };
+      void setAttractionMethod(std::string);
+      void SimpleSpringAttraction();
+      void CatchBondAttraction();
+      void SlipBondAttraction();
       Tissue3D(std::vector<cudaDPM::Cell3D> cells, float phi0);
       void EulerUpdate(int nsteps, float dt);
       void disperse3D();
       void disperse2D();
+
+    private:
+      std::string attMethodName = "SimpleSpring";
+      std::function<void()> attractionMethod;
+      cudaDPM::Cell3D* CellsCuda = NULL;
+      cudaDPM::Vertex3D* VertsCuda = NULL;
+      glm::ivec3* TriCuda = NULL;
   };
   class Tissue2D{
     public:
@@ -45,7 +64,8 @@ namespace cudaDPM{
       float phi0;
       int NCELLS;
       int VertDOF;
-      float Kc;
+      float Kre;
+      float Kat;
       float L;
       float U;
       int MaxNV;

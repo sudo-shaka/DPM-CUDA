@@ -47,7 +47,7 @@ namespace cudaDPM{
       }
     }
     L = sqrt(sumareas)/_phi0;
-    Kc = 1.0;
+    Kre = 1.0;
     U = 0.0;
   }
 
@@ -83,7 +83,7 @@ namespace cudaDPM{
     cudaError_t cudaerr;
     for(int step=0;step<nsteps;step++){
       cuShapeForce2D<<<NCELLS,MaxNV>>>(dt,MaxNV,NCELLS,CellCUDA,VertsCUDA);
-      cuRetractingForce2D<<<NCELLS,MaxNV>>>(dt,MaxNV,Kc,L,NCELLS,CellCUDA,VertsCUDA);
+      cuRetractingForce2D<<<NCELLS,MaxNV>>>(dt,MaxNV,Kre,L,NCELLS,CellCUDA,VertsCUDA);
       cudaerr = cudaDeviceSynchronize();
       if(cudaerr != cudaSuccess){
         std::cerr << "[!] Error: cannot properly run cudaKernel : ";
@@ -177,6 +177,7 @@ namespace cudaDPM{
 
   Tissue3D::Tissue3D(std::vector<cudaDPM::Cell3D> _Cells, float _phi0){
     Cells=_Cells;
+    PBC = false;
     int nv = Cells[0].NV;
     for(cudaDPM::Cell3D c : Cells){
       if((int)c.NV != nv){
@@ -184,6 +185,7 @@ namespace cudaDPM{
         exit(0);
       }
     }
+    setAttractionMethod("SimpleSpring");
     phi0 = _phi0;
     NCELLS = Cells.size();
     float volume = 0.0;
@@ -196,6 +198,12 @@ namespace cudaDPM{
   }
 
   void Tissue3D::disperse2D(){
+    PBC = true;
+    float sumArea = 0.0f;
+    for(int i=0;i<NCELLS;i++){
+      sumArea += M_PI*Cells[i].r0*Cells[i].r0;
+    }
+    L = sqrt(sumArea)/phi0;
     std::vector<float> X,Y,Fx,Fy;
     X.resize(NCELLS);
     Y.resize(NCELLS);
@@ -208,7 +216,8 @@ namespace cudaDPM{
       X[i] = drand48() * L;
       Y[i] = drand48() * L;
     }
-    float oldU = 100.0f,dU = 100.0f;
+    float oldU = MAXFLOAT,dU = MAXFLOAT;
+    float U = 0.0;
     count = 0;
     while(dU > 1e-6){
       U=0.0f;
@@ -273,6 +282,7 @@ namespace cudaDPM{
   }
 
   void Tissue3D::disperse3D(){
+    PBC = true;
     std::vector<glm::vec3> centers;
     std::vector<glm::vec3> forces;
     glm::vec3 rij;
@@ -336,18 +346,53 @@ namespace cudaDPM{
     }
   }
 
+  void Tissue3D::setAttractionMethod(std::string method){
+    attMethodName = method;
+    auto it = methods.find(attMethodName);
+    if(it != methods.end()){
+      attractionMethod = [this, func = it->second](){
+        func(this);
+      };
+    }
+    else{
+      std::cerr << "ERROR! Unknown method: " << attMethodName << ". Exiting.." << std::endl;
+    }
+  }
+
+  void Tissue3D::SimpleSpringAttraction(){
+    if(!CellsCuda || !VertsCuda){
+      std::cout << "Cells or Verts cudaMemory is not allocated" << std::endl;
+      return;
+    }
+    int NV = Cells[0].NV;
+    cuSimpleSpringAttraction<<<NCELLS,NV>>>(NCELLS,PBC,L,Kat,CellsCuda,VertsCuda);
+  }
+
+  void Tissue3D::CatchBondAttraction(){
+    if(!CellsCuda || !VertsCuda){
+      std::cout << "Cells or Verts cudaMemory is not allocated" << std::endl;
+      return;
+    }
+    int NV = Cells[0].NV;
+    cuCatchBondAttraction<<<NCELLS,NV>>>(NCELLS,PBC,L,Kat,CellsCuda,VertsCuda);
+  }
+
+  void Tissue3D::SlipBondAttraction(){
+    if(!CellsCuda || !VertsCuda){
+      std::cout << "Cells or Verts cudaMemory is not allocated" << std::endl;
+      return;
+    }
+    int NV = Cells[0].NV;
+    cuCatchBondAttraction<<<NCELLS,NV>>>(NCELLS,PBC,L,Kat,CellsCuda,VertsCuda);
+  }
+
   void Tissue3D::EulerUpdate(int nsteps, float dt){
     int ci,NV = Cells[0].NV, NT = Cells[0].ntriangles;
     std::vector<std::thread> threads;
     if(NT > 1024){
-      std::cerr << "[!] Error: Euler update cannot be completed. Greater than 1024 threads...\n";
+      std::cerr << "\n[!] Error: Euler update cannot be completed. Greater than 1024 threads...\n";
       return;
     }
-
-    //initializing pointers to reference host memorty for cuda
-    cudaDPM::Cell3D* CellsCuda;
-    cudaDPM::Vertex3D* VertsCuda;
-    glm::ivec3* TriCuda;
 
     std::vector<cudaError_t> errors;
     errors.resize(3);
@@ -381,7 +426,8 @@ namespace cudaDPM{
       cuResetForces3D<<<NCELLS,NV>>>(NCELLS,NV, VertsCuda);
       cudaDeviceSynchronize();
       cuShapeForce3D<<<NCELLS,NT>>>(NCELLS,CellsCuda,VertsCuda,TriCuda);
-      cuRepellingForce3D<<<NCELLS,NV>>>(NCELLS,Kc,CellsCuda,VertsCuda,TriCuda);
+      cuRepellingForce3D<<<NCELLS,NV>>>(NCELLS,PBC, L,Kre,CellsCuda,VertsCuda,TriCuda);
+      if(Kat > 0) attractionMethod();
       cudaDeviceSynchronize();
       cuEulerUpdate3D<<<NCELLS,NV>>>(dt,NCELLS,NV,VertsCuda);
       cudaDeviceSynchronize();
@@ -397,5 +443,6 @@ namespace cudaDPM{
 
     //Free mem on cuda
     cudaFree(CellsCuda); cudaFree(VertsCuda); cudaFree(TriCuda);
+    CellsCuda = NULL; VertsCuda = NULL; TriCuda = NULL;
   }
 }

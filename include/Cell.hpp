@@ -91,6 +91,7 @@ namespace cudaDPM{
       float Kv;
       float Ka;
       float Ks;
+      float idealForce = 1.0;
       //float Kb;
       int ntriangles;
       float COMX;

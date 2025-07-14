@@ -285,6 +285,7 @@ __device__ void cuVolumeForceUpdate(int NCELLS, cudaDPM::Cell3D *Cells, cudaDPM:
   if(Cells[ci].Kv < 1e-6){
     return;
   }
+  
   int NV = Cells[ci].NV;
 
   glm::ivec3 face = Faces[threadIdx.x];
@@ -293,22 +294,41 @@ __device__ void cuVolumeForceUpdate(int NCELLS, cudaDPM::Cell3D *Cells, cudaDPM:
   int i1 = ci * NV + face.y;
   int i2 = ci * NV + face.z;
 
-  auto inds = glm::ivec3(i0,i1,i2);
-
   glm::vec3 P0 = {Verts[i0].X, Verts[i0].Y, Verts[i0].Z};
   glm::vec3 P1 = {Verts[i1].X, Verts[i1].Y, Verts[i1].Z};
   glm::vec3 P2 = {Verts[i2].X, Verts[i2].Y, Verts[i2].Z};
 
-  float volumeStrain = (Cells[ci].Volume/Cells[ci].v0) - 1.0f;
-  glm::vec3 A = P1 - P0;
-  glm::vec3 B = P2 - P0;
-  glm::vec3 normal = glm::normalize(glm::cross(A,B));
-  for(int i=0;i<3;i++){
-    glm::vec3 force = -(1.0f/3.0f) * Cells[ci].Kv * volumeStrain * normal;
-    Verts[inds[i]].Fx += force.x;
-    Verts[inds[i]].Fy += force.y;
-    Verts[inds[i]].Fz += force.z;
-  }
+  float Kv = Cells[ci].Kv;
+  float V0 = Cells[ci].v0;
+  float V = Cells[ci].Volume;
+  float volumeStrain = (V / V0) - 1.0f;
+
+  glm::vec3 COM = glm::vec3(Cells[ci].COMX, Cells[ci].COMY, Cells[ci].COMZ);
+  glm::vec3 A = P1 - COM;
+  glm::vec3 B = P2 - COM;
+  glm::vec3 C = P0 - COM;
+
+  // Gradient of volume wrt vertices
+  glm::vec3 grad0 = glm::cross(A, B); // dV/dP0
+  glm::vec3 grad1 = glm::cross(B, C); // dV/dP1
+  glm::vec3 grad2 = glm::cross(C, A); // dV/dP2
+
+  // Force is -Kv * strain * dV
+  glm::vec3 f0 = -Kv * volumeStrain * grad0 / 6.0f;
+  glm::vec3 f1 = -Kv * volumeStrain * grad1 / 6.0f;
+  glm::vec3 f2 = -Kv * volumeStrain * grad2 / 6.0f;
+
+  Verts[i0].Fx += f0.x;
+  Verts[i0].Fy += f0.y;
+  Verts[i0].Fz += f0.z;
+
+  Verts[i1].Fx += f1.x;
+  Verts[i1].Fy += f1.y;
+  Verts[i1].Fz += f1.z;
+
+  Verts[i2].Fx += f2.x;
+  Verts[i2].Fy += f2.y;
+  Verts[i2].Fz += f2.z;
 }
 
 __device__ void cuSurfaceAreaForceUpdate(int NCELLS, cudaDPM::Cell3D *Cells, cudaDPM::Vertex3D *Verts, glm::ivec3 *Faces){
@@ -371,12 +391,12 @@ __device__ void cuSurfaceAdhesionUpdate(int NCELLS, cudaDPM::Cell3D *Cells, cuda
   for(int i =0; i<3;i++){
     flatten[i].z = 0.0f;
     if(Positions[i].z < flatten[i].z){
-      forces[i].z -= 10*pow((Positions[i].z - flatten[i].z),2);
+      forces[i].z += Cells[ci].Ks*pow((Positions[i].z - flatten[i].z),2);
     }
-    if((A.x*B.y - A.y*B.x < 0.0f)){
-      float dist = glm::distance(flatten[i],Positions[i]);
+    float dist = glm::distance(flatten[i],Positions[i]);
+    if((A.x*B.y - A.y*B.x < 0.0f) && dist < Cells[ci].r0/5.0f){
       float ftmp = (1.0 - dist/Cells[ci].l0);
-      forces[i] -= Cells[ci].Ks*ftmp*glm::normalize(Positions[i]-COM);
+      forces[i] += Cells[ci].Ks*ftmp*glm::normalize(flatten[i]-COM);
     }
   }
   for(int i=0;i<3;i++){
@@ -385,6 +405,114 @@ __device__ void cuSurfaceAdhesionUpdate(int NCELLS, cudaDPM::Cell3D *Cells, cuda
     Verts[inds[i]].Fz += forces[i].z;
   }
 }
+
+__global__ void cuSimpleSpringAttraction(int NCELLS, bool PBC, float L, float Kat, cudaDPM::Cell3D *Cells, cudaDPM::Vertex3D *Verts){
+  int ci = blockIdx.x;
+  int vi = threadIdx.x + ci * Cells[ci].NV;
+  float dist;
+  float l0 = Cells[ci].l0;
+  glm::vec3 PI = glm::vec3(Verts[vi].X,Verts[vi].Y,Verts[vi].Z);
+  for(int cj = 0; cj < NCELLS;cj++){
+    if(cj==ci){
+      return;
+    }
+    for(int j=0;j<Cells[cj].NV;j++){
+      int vj = threadIdx.x + cj * Cells[ci].NV;
+      glm::vec3 PJ = glm::vec3(Verts[vj].X,Verts[vj].Y,Verts[vj].Z);
+      glm::vec3 rij = PJ-PI;
+      if(PBC){
+        rij -= L * glm::round(rij/L);
+      }
+      dist = glm::sqrt(glm::dot(rij,rij));
+      if(dist > l0*2){
+        continue;
+      }
+      glm::vec3 force = Kat * 0.5f * ((dist/l0)-1.0f) * glm::normalize(rij);
+      Verts[vi].Fx -= force.x;
+      Verts[vi].Fy -= force.y;
+      Verts[vi].Fz -= force.z;
+      Verts[vj].Fx += force.x;
+      Verts[vj].Fy += force.y;
+      Verts[vj].Fz += force.z;
+    } 
+  }
+}
+__global__ void cuSlipBondAttraction(int NCELLS, bool PBC,float L,float Kat, cudaDPM::Cell3D *Cells, cudaDPM::Vertex3D *Verts){
+  int ci = blockIdx.x;
+  int vi = threadIdx.x + ci * Cells[ci].NV;
+  float dist;
+  float l0 = Cells[ci].l0;
+  glm::vec3 PI = glm::vec3(Verts[vi].X,Verts[vi].Y,Verts[vi].Z);
+  for(int cj = 0; cj < NCELLS;cj++){
+    if(cj==ci){
+      return;
+    }
+    for(int j=0;j<Cells[cj].NV;j++){
+      int vj = threadIdx.x + cj * Cells[ci].NV;
+      glm::vec3 PJ = glm::vec3(Verts[vj].X,Verts[vj].Y,Verts[vj].Z);
+      glm::vec3 rij = PJ-PI;
+      if(PBC){
+        rij -= L * glm::round(rij/L);
+      }
+      dist = glm::sqrt(glm::dot(rij,rij));
+      if(dist > l0*2){
+        continue;
+      }
+      float ftmp = dist/Cells[ci].l0 * Kat;
+      float f0 = Cells[ci].idealForce;
+      float lifetime = std::exp(-std::fabs(ftmp)/f0) + std::exp(-std::pow((std::fabs(ftmp)-f0)/f0,2));
+      if(lifetime < 1e-8){
+        continue;
+      }
+      ftmp /= lifetime;
+      glm::vec3 force = 0.5f * ftmp * glm::normalize(rij);
+      Verts[vi].Fx += force.x;
+      Verts[vi].Fy += force.y;
+      Verts[vi].Fz += force.z;
+      Verts[vj].Fx -= force.x;
+      Verts[vj].Fy -= force.y;
+      Verts[vj].Fz -= force.z;
+    } 
+  }
+}
+  
+__global__ void cuCatchBondAttraction(int NCELLS,bool PBC, float L ,float Kat, cudaDPM::Cell3D *Cells, cudaDPM::Vertex3D *Verts){
+  int ci = blockIdx.x;
+  int vi = threadIdx.x + ci * Cells[ci].NV;
+  float dist;
+  float l0 = Cells[ci].l0;
+  glm::vec3 PI = glm::vec3(Verts[vi].X,Verts[vi].Y,Verts[vi].Z);
+  for(int cj = 0; cj < NCELLS;cj++){
+    if(cj==ci){
+      return;
+    }
+    for(int j=0;j<Cells[cj].NV;j++){
+      int vj = threadIdx.x + cj * Cells[ci].NV;
+      glm::vec3 PJ = glm::vec3(Verts[vj].X,Verts[vj].Y,Verts[vj].Z);
+      glm::vec3 rij = PJ-PI;
+      if(PBC){
+        rij -= L * glm::round(rij/L);
+      }
+      dist = glm::sqrt(glm::dot(rij,rij));
+      if(dist > l0*2){
+        continue;
+      }
+      float ftmp = dist/Cells[ci].l0 * Kat;
+      float f0 = Cells[ci].idealForce;
+      float lifetime = std::exp(-std::fabs(ftmp)/f0);
+      if(lifetime < 1e-8) continue;
+      ftmp /= lifetime;
+      glm::vec3 force = 0.5f * ftmp * glm::normalize(rij);
+      Verts[vi].Fx += force.x;
+      Verts[vi].Fy += force.y;
+      Verts[vi].Fz += force.z;
+      Verts[vj].Fx -= force.x;
+      Verts[vj].Fy -= force.y;
+      Verts[vj].Fz -= force.z;
+    } 
+  }
+}
+  
 
 __global__ void cuResetForces3D(int NCELLS, int NV, cudaDPM::Vertex3D* Verts){
   int ci = blockIdx.x;
@@ -418,18 +546,22 @@ __global__ void cuShapeForce3D(int NCELLS,cudaDPM::Cell3D* Cells, cudaDPM::Verte
 
 
 //Need to add PBC handling
-__global__ void cuRepellingForce3D(
-  int NCELLS, float Kc, cudaDPM::Cell3D* Cells, cudaDPM::Vertex3D *Verts, glm::ivec3 *Faces){
+__global__ void cuRepellingForce3D(int NCELLS, bool PBC, float L, float Kc, cudaDPM::Cell3D* Cells, cudaDPM::Vertex3D *Verts, glm::ivec3 *Faces){
 
   int ci = blockIdx.x;
   int vi = threadIdx.x + ci * Cells[ci].NV;
 
   if(ci >= NCELLS || Kc < 1e-4) return;
 
+  glm::vec3 shift(0.0);
+  glm::vec3 COM = glm::vec3(Cells[ci].COMX,Cells[ci].COMY,Cells[ci].COMZ);
+
   auto Force = glm::vec3{0.0f};
   glm::vec3 p = glm::vec3(Verts[vi].X, Verts[vi].Y, Verts[vi].Z);
-  glm::vec3 COM = glm::vec3(Cells[ci].COMX,Cells[ci].COMY,Cells[ci].COMZ);
   for(int cj=0;cj<NCELLS;cj++){
+    auto COMJ = glm::vec3(Cells[cj].COMX,Cells[cj].COMY,Cells[cj].COMY);
+    if(PBC) shift = L * glm::round((COM-COMJ)/L);
+    auto newP = p - shift;
     if(ci==cj) continue;
     float winding_number = 0.0f;
     for(int fj=0;fj < Cells[cj].ntriangles; fj++){
@@ -438,9 +570,9 @@ __global__ void cuRepellingForce3D(
       glm::vec3 B = glm::vec3{Verts[face[1] + cj * Cells[cj].NV].X,Verts[face[1]+cj*Cells[cj].NV].Y,Verts[face[1]+cj*Cells[cj].NV].Z};
       glm::vec3 C = glm::vec3{Verts[face[2] + cj * Cells[cj].NV].X,Verts[face[2]+cj*Cells[cj].NV].Y,Verts[face[2]+cj*Cells[cj].NV].Z};
 
-      glm::vec3 a = A-p;
-      glm::vec3 b = B-p;
-      glm::vec3 c = C-p;
+      glm::vec3 a = A-newP;
+      glm::vec3 b = B-newP;
+      glm::vec3 c = C-newP;
 
       float la = length(a), lb = length(b) , lc = length(c);
       float denom = la*lb*lc + glm::dot(a,b)*lc + glm::dot(a,c)*lb + glm::dot(b,c)*la;
