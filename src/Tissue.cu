@@ -17,8 +17,9 @@
  * =====================================================================================
  */
 
-#include"../include/Cell.hpp"
-#include"../include/Tissue.hpp"
+#define GLM_ENAME_EXPERIMENTAL
+#include"Cell.hpp"
+#include"Tissue.hpp"
 #include<vector>
 #include<thread>
 #include<iostream>
@@ -28,7 +29,7 @@
 #include<cuda.h>
 #include<cuda_runtime_api.h>
 #include<cuda_runtime.h>
-#include"../include/DPMCudaKernel.cuh"
+#include"DPMCudaKernel.cuh"
 
 namespace cudaDPM{
   Tissue2D::Tissue2D(std::vector<cudaDPM::Cell2D> _Cells, float _phi0){
@@ -369,34 +370,30 @@ namespace cudaDPM{
       cudaMemcpy(TriCuda+(NT*ci),Cells[ci].FaceIndices.data(),NT * sizeof(glm::ivec3),cudaMemcpyHostToDevice);
       cudaMemcpy(VertsCuda+(NV*ci),Cells[ci].Verticies.data(),NV * sizeof(cudaDPM::Vertex3D),cudaMemcpyHostToDevice);
     }
+    cudaMemcpy(CellsCuda,Cells.data(),NCELLS * sizeof(cudaDPM::Cell3D),cudaMemcpyHostToDevice);
 
+    cudaError_t err = cudaSuccess;
+    err = cudaGetLastError();
+    if(err != cudaSuccess){
+      std::cout << "\nCUDA Error: SETUP MEMCPY: " << cudaGetErrorString(err) << std::endl;
+    }
     for(int s=0; s<nsteps;s++){
-      //Need to update volume and center for each timestep (calculated on CPU)
-      std::vector<std::thread> threads;
-      threads.resize(NCELLS);
-      for(ci=0;ci<NCELLS;ci++){
-        threads[ci] = std::thread(&cudaDPM::Cell3D::UpdateCOM,&this->Cells[ci]);
+      cuResetForces3D<<<NCELLS,NV>>>(NCELLS,NV, VertsCuda);
+      cudaDeviceSynchronize();
+      cuShapeForce3D<<<NCELLS,NT>>>(NCELLS,CellsCuda,VertsCuda,TriCuda);
+      cuRepellingForce3D<<<NCELLS,NV>>>(NCELLS,Kc,CellsCuda,VertsCuda,TriCuda);
+      cudaDeviceSynchronize();
+      cuEulerUpdate3D<<<NCELLS,NV>>>(dt,NCELLS,NV,VertsCuda);
+      cudaDeviceSynchronize();
+      err = cudaGetLastError();
+      if(err != cudaSuccess){
+        std::cout << "\nCUDA Error: INTEGRATION: " << cudaGetErrorString(err) << std::endl;
       }
-
-      for(auto& th : threads){
-        th.join();
-      }
-
-      for(ci=0;ci<NCELLS;ci++){
-        threads[ci] = std::thread(&cudaDPM::Cell3D::UpdateVolume,&this->Cells[ci]);
-      }
-
-      for(auto& th : threads){
-        th.join();
-      }
-
-      cudaMemcpy(CellsCuda,Cells.data(),NCELLS * sizeof(cudaDPM::Cell3D), cudaMemcpyHostToDevice);
-      cuShapeForce3D<<<NCELLS,NT>>>(dt,NCELLS,CellsCuda,VertsCuda,TriCuda);
-      cuRepellingForce3D<<<NCELLS,NT>>>(dt,NCELLS,NT,L,Kc,CellsCuda,VertsCuda,TriCuda);
-      cudaMemcpy(Cells.data(),CellsCuda,NCELLS * sizeof(cudaDPM::Cell3D),cudaMemcpyDeviceToHost);
-      for(ci = 0; ci<NCELLS; ci++)
+    }
+    for(ci = 0; ci<NCELLS; ci++){
         cudaMemcpy(Cells[ci].Verticies.data(),VertsCuda+(NV*ci),NV * sizeof(cudaDPM::Vertex3D),cudaMemcpyDeviceToHost);
     }
+    cudaMemcpy(Cells.data(),CellsCuda,NCELLS * sizeof(cudaDPM::Cell3D),cudaMemcpyDeviceToHost);
 
     //Free mem on cuda
     cudaFree(CellsCuda); cudaFree(VertsCuda); cudaFree(TriCuda);

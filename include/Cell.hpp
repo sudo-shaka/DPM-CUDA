@@ -16,6 +16,9 @@
  * =====================================================================================
  */
 
+#ifndef __Cells__
+#define __Cells__
+
 #include<vector>
 #include<glm/vec3.hpp>
 namespace cudaDPM{
@@ -119,3 +122,4 @@ namespace cudaDPM{
       Vertex3D GetMiddlePoint(int i ,int j);
   };
 }
+#endif

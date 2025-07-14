@@ -3,18 +3,19 @@ from glob import glob
 from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 import torch
-assert torch.cuda.is_available()
+
+if not torch.cuda.is_available():
+    print('CUDA device not found.')
+    exit(0)
+
 setup(
     name='cudaDPM',
     ext_modules=[
-        CUDAExtension('cudaDPM', [
-            'src/Cell.cpp',
-            'src/Tissue.cu',
-            'src/DPMCudaKernel.cu',
-            'src/GeometricFunctions.cpp',
-            'src/Module_Wrapper.cpp',
-            ],
-        )
+        CUDAExtension(
+            'cudaDPM', 
+            sorted(glob("src/*c*")),
+            include_dirs=["include/"],
+        ),
     ],
     cmdclass={
         'build_ext': BuildExtension

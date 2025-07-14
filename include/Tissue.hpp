@@ -16,7 +16,10 @@
  * =====================================================================================
  */
 
+ #ifndef __TISSUE__
+ #define __TISSUE__
 #include<vector>
+#include"Cell.hpp"
 
 namespace cudaDPM{
   class Tissue3D{
@@ -52,3 +55,4 @@ namespace cudaDPM{
       void disperse();
   };
 }
+#endif

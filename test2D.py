@@ -8,11 +8,11 @@ from progressbar import progressbar
 def EulerTest(nout,nsteps, dt, ncells):
   C0 = cudaDPM.Cell2D(0.0,0.0,1.4,30,2.4,0.1,1.0,0.05)
   C1 = cudaDPM.Cell2D(0.0,0.0,1.37,25,2.0,0.1,1.0,0.05)
-  T = cudaDPM.Tissue2D([C0,C1]*int(ncells/2),0.8)
+  T = cudaDPM.Tissue2D([C0,C1]*int(ncells/2),0.95)
   T.disperse();
-  T.disperse();
-  T.Kc = 0.1
+  T.Kc = 2.0
 
+  #The reset is just plotting...
   print("Saving data to /tmp/")
   with imageio.get_writer('/tmp/cuTest2d.gif',mode='I') as writer:
     for s in progressbar(range(nout)):

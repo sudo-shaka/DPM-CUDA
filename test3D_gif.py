@@ -42,15 +42,19 @@ def PlotT3D(Tissue):
   ax.set_ylim(0,T.BoxLength)
   ax.set_zlim(0,T.BoxLength)
 
-Cell1=cudaDPM.Cell3D(x0=7.0,y0=6.0,z0=1.3,CalA0=1.05,VertexRecursion=2,r0=1.8,Kv=5,Ka=1.5)
-Cell2=cudaDPM.Cell3D(x0=4.0,y0=6.0,z0=1.3,CalA0=1.05,VertexRecursion=2,r0=2.2,Kv=5,Ka=1.5)
-Cell1.Ks = 0.0;
-T = cudaDPM.Tissue3D([Cell1,Cell2],0.3)
-T.Kc = 1.0;
+Cell1=cudaDPM.Cell3D(x0=7.0,y0=6.0,z0=1.8,CalA0=1.05,VertexRecursion=2,r0=1.8,Kv=5,Ka=2)
+Cell2=cudaDPM.Cell3D(x0=4.0,y0=6.0,z0=2.2,CalA0=1.05,VertexRecursion=2,r0=2.2,Kv=5,Ka=2)
+Cell1.Ks = 2.0;
+Cell2.Ks = 2.0;
+#T = cudaDPM.Tissue3D([Cell1,Cell2],0.5)
+T = cudaDPM.Tissue3D([Cell1,Cell2]*16,0.9)
+T.disperse2D()
+T.Kc = 50.0;
 
 print("Saving data to /tmp/")
+nout = 50
 with imageio.get_writer('/tmp/out.gif',mode='I') as writer:
-  for i in progressbar(range(75)):
+  for i in progressbar(range(nout)):
     T.EulerUpdate(50,0.001);
     PlotT3D(T)
     filename = '/tmp/'+str(i)+'.png'

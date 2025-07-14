@@ -17,10 +17,9 @@
  */
 
 #include<cmath>
-#include"../include/Cell.hpp"
+#include"Cell.hpp"
 #include<vector>
 #include<iostream>
-#include"../include/GeometricFunctions.hpp"
 
 namespace cudaDPM{
   Vertex2D::Vertex2D(){

@@ -1,11 +1,11 @@
-#include "../include/Cell.hpp"
+#define GLM_ENAME_EXPERIMENTAL
+#include "Cell.hpp"
+#include "DPMCudaKernel.cuh"
 #include<cmath>
 #include <glm/geometric.hpp>
-#include<stdio.h>
 #include<glm/glm.hpp>
 #include<glm/vec3.hpp>
 #include<glm/mat3x3.hpp>
-#include <glm/gtx/norm.hpp>
 
 __global__ void cuShapeForce2D(float dt,int MaxNV, int NCELLS, cudaDPM::Cell2D *Cells, cudaDPM::Vertex2D* Verts){
   int ci = blockIdx.x;
@@ -205,152 +205,255 @@ __global__ void cuRetractingForce2D(float dt,int MaxNV, float Kc, float L, int N
   }
 }
 
-__global__ void cuShapeForce3D(float dt,int NCELLS,cudaDPM::Cell3D* Cells, cudaDPM::Vertex3D *Verts, glm::ivec3 *Triangles){
+__device__ void cuUpdateCellVolumes(int NCELLS, cudaDPM::Cell3D *Cells, cudaDPM::Vertex3D *Verts, glm::ivec3 *Faces){
   int ci = blockIdx.x;
   int fi = threadIdx.x;
-  int NV = Cells[0].NV;
-  float l0 = Cells[0].l0;
-  int index = blockIdx.x * blockDim.x + threadIdx.x;
-
-  if(ci < NCELLS && fi < Cells[ci].ntriangles){
-    glm::ivec3 FaceIndex = Triangles[index];
-    glm::vec3 P0 = {Verts[FaceIndex.x+(ci*NV)].X,Verts[FaceIndex.x+(ci*NV)].Y,Verts[FaceIndex.x+(ci*NV)].Z};
-    glm::vec3 P1 = {Verts[FaceIndex.y+(ci*NV)].X,Verts[FaceIndex.y+(ci*NV)].Y,Verts[FaceIndex.y+(ci*NV)].Z};
-    glm::vec3 P2 = {Verts[FaceIndex.z+(ci*NV)].X,Verts[FaceIndex.z+(ci*NV)].Y,Verts[FaceIndex.z+(ci*NV)].Z};
-    glm::vec3 COM = {Cells[ci].COMX,Cells[ci].COMY,Cells[ci].COMZ};
-    glm::mat3 Forces = {0,0,0,0,0,0,0,0,0}, Positions = {P0,P1,P2};
-    int j;
-
-      //Volume Force Update
-    float VolumeStrain = (Cells[ci].Volume/Cells[ci].v0) - 1.0;
-    glm::vec3 A = P1-P0;
-    glm::vec3 B = P2-P0;
-    glm::vec3 Direction = glm::normalize(glm::cross(A,B));
-
-    for(j=0;j<3;j++){
-      Forces[j] -= Cells[ci].Kv * 0.5f * VolumeStrain * Direction;
-    }
-
-    //SurfaceArea Force Update
-
-    //Keep equalateral
-    glm::mat3 lv,ulv;
-    glm::vec3 length,dli;
-    lv[0] = Positions[1] - Positions[0];
-    lv[1] = Positions[2] - Positions[1];
-    lv[2] = Positions[0] - Positions[2];
-    length[0] = sqrt(glm::dot((lv[0]),(lv[0])));
-    length[1] = sqrt(glm::dot((lv[1]),(lv[1])));
-    length[2] = sqrt(glm::dot((lv[2]),(lv[2])));
-    ulv[0] = lv[0]/length[0];
-    ulv[1] = lv[1]/length[1];
-    ulv[2] = lv[2]/length[2];
-    dli[0] = length[0]/l0 - 1.0f;
-    dli[1] = length[1]/l0 - 1.0f;
-    dli[2] = length[2]/l0 - 1.0f;
-    Forces[0] += Cells[ci].Ka * (dli[0]*ulv[0]-dli[2]*ulv[2]);
-    Forces[1] += Cells[ci].Ka * (dli[1]*ulv[1]-dli[0]*ulv[0]);
-    Forces[2] += Cells[ci].Ka * (dli[2]*ulv[2]-dli[1]*ulv[1]);
-
-    //Just keep area constant
-    /*float Area = 0.5 * glm::l2Norm(glm::cross((P1-P0),(P2-P0)));
-    float AreaStrain=(Area/Cells[ci].a0) - 1.0;
-    glm::vec3 center = (P0+P1+P2)/3.0f;
-    Forces[0] += Cells[ci].Ka * 0.5f * AreaStrain * glm::normalize(center-P0);
-    Forces[1] += Cells[ci].Ka * 0.5f * AreaStrain * glm::normalize(center-P1);
-    Forces[2] += Cells[ci].Ka * 0.5f * AreaStrain * glm::normalize(center-P2);*/
-
-    //Sticking to surface
-
-    length = {Positions[0].z,Positions[1].z,Positions[2].z};
-    glm::mat3 point = Positions;
-    bool isnormaltosurface = ((A.x*B.y - A.y*B.x) < 0.0f);
-    point[0].z = 0.0f;
-    point[1].z = 0.0f;
-    point[2].z = 0.0f;
-
-    for(j=0;j<3;j++){
-      if(length[j] < 0.0 && length[j] < l0){
-        Forces[j].z -= Cells[ci].Ks * length[j]/l0;
-      }
-      else if(A.x*B.y - A.y*B.x < 0.0f && length[j] < l0){
-        Forces[j] += Cells[ci].Ks * ((1.0f-length[j]/(l0))/l0) * glm::normalize(point[j]-COM);
-      }
-    }
-    //Update Forces and Positions
-    for(j=0;j<3;j++){
-      Verts[FaceIndex[j]+(ci*NV)].Fx = Forces[j][0];
-      Verts[FaceIndex[j]+(ci*NV)].Fy = Forces[j][1];
-      Verts[FaceIndex[j]+(ci*NV)].Fz = Forces[j][2];
-      //damped Euler update
-      Verts[FaceIndex[j]+(ci*NV)].X += dt*Forces[j][0];
-      Verts[FaceIndex[j]+(ci*NV)].Y += dt*Forces[j][1];
-      Verts[FaceIndex[j]+(ci*NV)].Z += dt*Forces[j][2];
-    }
+  if(ci >= NCELLS){
+    return;
+  }
+  int NV = Cells[ci].NV;
+  int ntri = Cells[ci].ntriangles;
+  if(fi >= ntri){
+    return;
   }
 
+  glm::ivec3 face = Faces[fi];
+
+  int i0 = ci * NV + face.x;
+  int i1 = ci * NV + face.y;
+  int i2 = ci * NV + face.z;
+
+  glm::vec3 P0 = {Verts[i0].X, Verts[i0].Y, Verts[i0].Z};
+  glm::vec3 P1 = {Verts[i1].X, Verts[i1].Y, Verts[i1].Z};
+  glm::vec3 P2 = {Verts[i2].X, Verts[i2].Y, Verts[i2].Z};
+
+  glm::mat3 Positions={P0,P1,P2};
+  __shared__ float cellVolume;
+  if(threadIdx.x == 0) cellVolume = 0.0f;
+  __syncthreads();
+  float vol = glm::dot(glm::cross(P0,P1),P2)/6.0f;
+  atomicAdd(&cellVolume,vol);
+    __syncthreads();
+  if(threadIdx.x == 0){
+    Cells[ci].Volume = fabsf(cellVolume);
+  }
+}
+
+__device__ void cuUpdateCOMS(int NCELLS, cudaDPM::Cell3D *Cells,cudaDPM::Vertex3D *Verts, glm::ivec3 *Faces){
+  int ci = blockIdx.x;
+  int fi = threadIdx.x;
+  if(ci >= NCELLS){
+    return;
+  }
+  int NV = Cells[ci].NV;
+  int ntri = Cells[ci].ntriangles;
+  if(fi >= ntri){
+    return;
+  }
+  __shared__ float comx, comy, comz;
+
+  if(threadIdx.x == 0){
+    comx = 0.0f;
+    comy = 0.0f;
+    comz = 0.0f;
+  }
+
+  __syncthreads();
+
+  if(fi < NV){
+    atomicAdd(&comx,Verts[ci * NV + fi].X);
+    atomicAdd(&comy,Verts[ci * NV + fi].Y);
+    atomicAdd(&comz,Verts[ci * NV + fi].Z);
+  }
+
+  __syncthreads();
+
+  if(threadIdx.x == 0){
+    Cells[ci].COMX = comx/NV;
+    Cells[ci].COMY = comy/NV;
+    Cells[ci].COMZ = comz/NV;
+  }
+}
+
+__device__ void cuVolumeForceUpdate(int NCELLS, cudaDPM::Cell3D *Cells, cudaDPM::Vertex3D *Verts, glm::ivec3 *Faces){
+
+  //volume Forces
+  int ci = blockIdx.x;
+  if(ci > NCELLS){
+    return;
+  }
+  if(Cells[ci].Kv < 1e-6){
+    return;
+  }
+  int NV = Cells[ci].NV;
+
+  glm::ivec3 face = Faces[threadIdx.x];
+
+  int i0 = ci * NV + face.x;
+  int i1 = ci * NV + face.y;
+  int i2 = ci * NV + face.z;
+
+  auto inds = glm::ivec3(i0,i1,i2);
+
+  glm::vec3 P0 = {Verts[i0].X, Verts[i0].Y, Verts[i0].Z};
+  glm::vec3 P1 = {Verts[i1].X, Verts[i1].Y, Verts[i1].Z};
+  glm::vec3 P2 = {Verts[i2].X, Verts[i2].Y, Verts[i2].Z};
+
+  float volumeStrain = (Cells[ci].Volume/Cells[ci].v0) - 1.0f;
+  glm::vec3 A = P1 - P0;
+  glm::vec3 B = P2 - P0;
+  glm::vec3 normal = glm::normalize(glm::cross(A,B));
+  for(int i=0;i<3;i++){
+    glm::vec3 force = -(1.0f/3.0f) * Cells[ci].Kv * volumeStrain * normal;
+    Verts[inds[i]].Fx += force.x;
+    Verts[inds[i]].Fy += force.y;
+    Verts[inds[i]].Fz += force.z;
+  }
+}
+
+__device__ void cuSurfaceAreaForceUpdate(int NCELLS, cudaDPM::Cell3D *Cells, cudaDPM::Vertex3D *Verts, glm::ivec3 *Faces){
+  //surface area forces
+  int ci = blockIdx.x;
+  if(Cells[ci].Ka < 1e-6f){
+    return;
+  }
+  glm::ivec3 face = Faces[threadIdx.x];
+
+  int i0 = ci * Cells[ci].NV + face.x;
+  int i1 = ci * Cells[ci].NV + face.y;
+  int i2 = ci * Cells[ci].NV + face.z;
+
+  auto inds = glm::ivec3(i0,i1,i2);
+
+  glm::vec3 P0 = {Verts[i0].X, Verts[i0].Y, Verts[i0].Z};
+  glm::vec3 P1 = {Verts[i1].X, Verts[i1].Y, Verts[i1].Z};
+  glm::vec3 P2 = {Verts[i2].X, Verts[i2].Y, Verts[i2].Z};
+  glm::vec3 lv[3] = {
+    P1 - P0,
+    P2 - P1,
+    P0 - P2
+  };
+  for(int j=0; j < 3; j++){
+    float len = glm::length(lv[j]);
+    glm::vec3 u = lv[j]/len;
+    float dli = len/Cells[ci].l0 - 1.0f;
+
+    int j_prev = (j+2) % 3;
+    glm::vec3 force = Cells[ci].Ka * (dli*u-(glm::length(lv[j_prev])/Cells[ci].l0 - 1.0f)*(lv[j_prev]/glm::length(lv[j_prev])));
+    Verts[inds[j]].Fx += force.x;
+    Verts[inds[j]].Fy += force.y;
+    Verts[inds[j]].Fz += force.z;
+  }
+}
+
+__device__ void cuSurfaceAdhesionUpdate(int NCELLS, cudaDPM::Cell3D *Cells, cudaDPM::Vertex3D *Verts, glm::ivec3 *Faces){
+  int ci = blockIdx.x;
+  if(Cells[ci].Ks < 1e-6f){ 
+    return;
+  }
+  glm::ivec3 face = Faces[threadIdx.x];
+  int i0 = ci * Cells[ci].NV + face.x;
+  int i1 = ci * Cells[ci].NV + face.y;
+  int i2 = ci * Cells[ci].NV + face.z;
+  glm::ivec3 inds = glm::ivec3(i0,i1,i2);
+
+  glm::vec3 P0 = {Verts[i0].X, Verts[i0].Y, Verts[i0].Z};
+  glm::vec3 P1 = {Verts[i1].X, Verts[i1].Y, Verts[i1].Z};
+  glm::vec3 P2 = {Verts[i2].X, Verts[i2].Y, Verts[i2].Z};
+  glm::mat3 Positions={P0,P1,P2};
+  glm::vec3 flatten[3] = {P0,P1,P2};
+  glm::mat3x3 forces{0.0f};
+
+  auto A = P1 - P0;
+  auto B = P2 - P0;
+  auto COM = glm::vec3{Cells[ci].COMX,Cells[ci].COMY,Cells[ci].COMZ};
+
+  for(int i =0; i<3;i++){
+    flatten[i].z = 0.0f;
+    if(Positions[i].z < flatten[i].z){
+      forces[i].z -= 10*pow((Positions[i].z - flatten[i].z),2);
+    }
+    if((A.x*B.y - A.y*B.x < 0.0f)){
+      float dist = glm::distance(flatten[i],Positions[i]);
+      float ftmp = (1.0 - dist/Cells[ci].l0);
+      forces[i] -= Cells[ci].Ks*ftmp*glm::normalize(Positions[i]-COM);
+    }
+  }
+  for(int i=0;i<3;i++){
+    Verts[inds[i]].Fx += forces[i].x;
+    Verts[inds[i]].Fy += forces[i].y;
+    Verts[inds[i]].Fz += forces[i].z;
+  }
+}
+
+__global__ void cuResetForces3D(int NCELLS, int NV, cudaDPM::Vertex3D* Verts){
+  int ci = blockIdx.x;
+  if(ci >= NCELLS) return;
+  int vi = threadIdx.x + ci * NV;
+  Verts[vi].Fx = 0.0f;
+  Verts[vi].Fy = 0.0f;
+  Verts[vi].Fz = 0.0f;
   __syncthreads();
 }
 
+__global__ void cuEulerUpdate3D(float dt, int NCELLS, int NV, cudaDPM::Vertex3D *Verts){
+    //Update Forces and Positions
+  int ci = blockIdx.x;
+  if(ci >= NCELLS) return;
+  int vi = threadIdx.x + ci * NV;
+  Verts[vi].X += dt*Verts[vi].Fx;
+  Verts[vi].Y += dt*Verts[vi].Fy;
+  Verts[vi].Z += dt*Verts[vi].Fz;
+  __syncthreads();
+  
+}
 
-__global__ void cuRepellingForce3D(float dt, int NCELLS, int NT, float L, float Kc,
-                                   cudaDPM::Cell3D* Cells, cudaDPM::Vertex3D
-                                   *Verts, glm::ivec3 *Triangles){
+__global__ void cuShapeForce3D(int NCELLS,cudaDPM::Cell3D* Cells, cudaDPM::Vertex3D *Verts, glm::ivec3 *Faces){
+  cuUpdateCellVolumes(NCELLS, Cells, Verts, Faces);
+  cuUpdateCOMS(NCELLS,Cells,Verts,Faces);
+  cuVolumeForceUpdate(NCELLS, Cells, Verts,Faces);
+  cuSurfaceAreaForceUpdate(NCELLS, Cells, Verts,Faces);
+  cuSurfaceAdhesionUpdate(NCELLS, Cells, Verts,Faces);
+}
+
+
+//Need to add PBC handling
+__global__ void cuRepellingForce3D(
+  int NCELLS, float Kc, cudaDPM::Cell3D* Cells, cudaDPM::Vertex3D *Verts, glm::ivec3 *Faces){
 
   int ci = blockIdx.x;
-  int fi = threadIdx.x;
-  int NV = Cells[0].NV;
-  int cj,fj;
-  float l0 = Cells[ci].l0;
-  float dist;
-  int index = blockIdx.x * blockDim.x + threadIdx.x;
+  int vi = threadIdx.x + ci * Cells[ci].NV;
 
-  if(ci < NCELLS && fi < Cells[ci].ntriangles && Kc > 0.0001){
-    glm::vec3 COM = {Cells[ci].COMX,Cells[ci].COMY,Cells[ci].COMZ};
-    glm::ivec3 FaceIndexI = Triangles[index], FaceIndexJ;
-    glm::mat3 Forces = {0,0,0,0,0,0,0,0,0}, PI, PJ;
-    PI[0] = {Verts[FaceIndexI.x+(ci*NV)].X,Verts[FaceIndexI.x+(ci*NV)].Y,Verts[FaceIndexI.x+(ci*NV)].Z};
-    PI[1] = {Verts[FaceIndexI.y+(ci*NV)].X,Verts[FaceIndexI.y+(ci*NV)].Y,Verts[FaceIndexI.y+(ci*NV)].Z};
-    PI[2] = {Verts[FaceIndexI.z+(ci*NV)].X,Verts[FaceIndexI.z+(ci*NV)].Y,Verts[FaceIndexI.z+(ci*NV)].Z};
-    glm::vec3 normali, FaceCenterI, FaceCenterJ, rij;
+  if(ci >= NCELLS || Kc < 1e-4) return;
 
-    FaceCenterI = (PI[0]+PI[1]+PI[2])/3.0f;
+  auto Force = glm::vec3{0.0f};
+  glm::vec3 p = glm::vec3(Verts[vi].X, Verts[vi].Y, Verts[vi].Z);
+  glm::vec3 COM = glm::vec3(Cells[ci].COMX,Cells[ci].COMY,Cells[ci].COMZ);
+  for(int cj=0;cj<NCELLS;cj++){
+    if(ci==cj) continue;
+    float winding_number = 0.0f;
+    for(int fj=0;fj < Cells[cj].ntriangles; fj++){
+      glm::ivec3 face = Faces[fj+cj*Cells[cj].ntriangles];
+      glm::vec3 A = glm::vec3{Verts[face[0] + cj * Cells[cj].NV].X,Verts[face[0]+cj*Cells[cj].NV].Y,Verts[face[0]+cj*Cells[cj].NV].Z};
+      glm::vec3 B = glm::vec3{Verts[face[1] + cj * Cells[cj].NV].X,Verts[face[1]+cj*Cells[cj].NV].Y,Verts[face[1]+cj*Cells[cj].NV].Z};
+      glm::vec3 C = glm::vec3{Verts[face[2] + cj * Cells[cj].NV].X,Verts[face[2]+cj*Cells[cj].NV].Y,Verts[face[2]+cj*Cells[cj].NV].Z};
 
-    normali = glm::cross((PI[1]-PI[0]),(PI[2]-PI[0]));
-    for(cj=0;cj<NCELLS;cj++){
-      if(ci != cj){
-        for(fj=0;fj<NT;fj++){
-          FaceIndexJ = Triangles[fj+(cj*NT)];
-          PJ[0] = {Verts[FaceIndexJ.x+(cj*NV)].X,Verts[FaceIndexJ.x+(cj*NV)].Y,Verts[FaceIndexJ.x+(cj*NV)].Z};
-          PJ[1] = {Verts[FaceIndexJ.y+(cj*NV)].X,Verts[FaceIndexJ.y+(cj*NV)].Y,Verts[FaceIndexJ.y+(cj*NV)].Z};
-          PJ[2] = {Verts[FaceIndexJ.z+(cj*NV)].X,Verts[FaceIndexJ.z+(cj*NV)].Y,Verts[FaceIndexJ.z+(cj*NV)].Z};
-          FaceCenterJ = (PJ[0]+PJ[1]+PJ[2])/3.0f;
-          rij = FaceCenterJ-FaceCenterI;
-          rij -= L*round(rij/L);
-          dist = abs(sqrt(glm::dot(rij,rij)));
-          if(glm::dot(normali,rij) < 0.0 && dist < l0){
-            //Forces[0] += pow(dist,2.0f)*0.5f*Kc*glm::normalize(COM-PI[0]);
-            //Forces[1] += pow(dist,2.0f)*0.5f*Kc*glm::normalize(COM-PI[1]);
-            //Forces[2] += pow(dist,2.0f)*0.5f*Kc*glm::normalize(COM-PI[2]);
-            Forces[0] += (dist/l0)*0.5f*Kc*glm::normalize(COM-PI[0]);
-            Forces[1] += (dist/l0)*0.5f*Kc*glm::normalize(COM-PI[1]);
-            Forces[2] += (dist/l0)*0.5f*Kc*glm::normalize(COM-PI[2]);
-          }
-        }
-      }
+      glm::vec3 a = A-p;
+      glm::vec3 b = B-p;
+      glm::vec3 c = C-p;
+
+      float la = length(a), lb = length(b) , lc = length(c);
+      float denom = la*lb*lc + glm::dot(a,b)*lc + glm::dot(a,c)*lb + glm::dot(b,c)*la;
+      float num = glm::dot(a,glm::cross(b,c));
+
+      float omega = 2.0f * atan2(num,denom);
+      winding_number += omega;
     }
-    //Update Forces and Positions
-    for(int j=0;j<3;j++){
-      Verts[FaceIndexI[j]+(ci*NV)].Fx = Forces[j][0];
-      Verts[FaceIndexI[j]+(ci*NV)].Fy = Forces[j][1];
-      Verts[FaceIndexI[j]+(ci*NV)].Fz = Forces[j][2];
-      //damped Euler update
-      Verts[FaceIndexI[j]+(ci*NV)].X += dt*Forces[j][0];
-      Verts[FaceIndexI[j]+(ci*NV)].Y += dt*Forces[j][1];
-      Verts[FaceIndexI[j]+(ci*NV)].Z += dt*Forces[j][2];
-    }
+    winding_number = fabs(winding_number);
+    Force += winding_number * 0.5f * Kc * glm::normalize(COM-p);
   }
 
-  __syncthreads();
-
+  Verts[vi].Fx += Force.x;
+  Verts[vi].Fy += Force.y;
+  Verts[vi].Fz += Force.z;
 }

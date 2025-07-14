@@ -1,0 +1,80 @@
+[
+  {
+    "arguments": [
+      "/opt/cuda/bin/nvcc",
+      "-O3",
+      "-Xcompiler",
+      "-fPIC",
+      "-I",
+      "include/",
+      "-I/opt/cuda/include/",
+      "-I/usr/include/python3.13",
+      "-I/usr/include/python3.13",
+      "-c",
+      "-o",
+      "src/Tissue.cu.o",
+      "src/Tissue.cu"
+    ],
+    "directory": "/home/shaka/Code/Cpp/cudaDPM",
+    "file": "/home/shaka/Code/Cpp/cudaDPM/src/Tissue.cu",
+    "output": "/home/shaka/Code/Cpp/cudaDPM/src/Tissue.cu.o"
+  },
+  {
+    "arguments": [
+      "/opt/cuda/bin/nvcc",
+      "-O3",
+      "-Xcompiler",
+      "-fPIC",
+      "-I",
+      "include/",
+      "-I/opt/cuda/include/",
+      "-I/usr/include/python3.13",
+      "-I/usr/include/python3.13",
+      "-c",
+      "-o",
+      "src/DPMCudaKernel.cu.o",
+      "src/DPMCudaKernel.cu"
+    ],
+    "directory": "/home/shaka/Code/Cpp/cudaDPM",
+    "file": "/home/shaka/Code/Cpp/cudaDPM/src/DPMCudaKernel.cu",
+    "output": "/home/shaka/Code/Cpp/cudaDPM/src/DPMCudaKernel.cu.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/g++",
+      "-O3",
+      "-fPIC",
+      "-I",
+      "include/",
+      "-I/opt/cuda/include/",
+      "-I/usr/include/python3.13",
+      "-I/usr/include/python3.13",
+      "-c",
+      "-o",
+      "src/Cell.cpp.o",
+      "src/Cell.cpp"
+    ],
+    "directory": "/home/shaka/Code/Cpp/cudaDPM",
+    "file": "/home/shaka/Code/Cpp/cudaDPM/src/Cell.cpp",
+    "output": "/home/shaka/Code/Cpp/cudaDPM/src/Cell.cpp.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/g++",
+      "-O3",
+      "-fPIC",
+      "-I",
+      "include/",
+      "-I/opt/cuda/include/",
+      "-I/usr/include/python3.13",
+      "-I/usr/include/python3.13",
+      "-c",
+      "-o",
+      "src/Module_Wrapper.cpp.o",
+      "src/Module_Wrapper.cpp"
+    ],
+    "directory": "/home/shaka/Code/Cpp/cudaDPM",
+    "file": "/home/shaka/Code/Cpp/cudaDPM/src/Module_Wrapper.cpp",
+    "output": "/home/shaka/Code/Cpp/cudaDPM/src/Module_Wrapper.cpp.o"
+  }
+]

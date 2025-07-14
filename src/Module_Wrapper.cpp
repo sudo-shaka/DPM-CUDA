@@ -19,9 +19,9 @@
 #include<cuda.h>
 #include<cuda_runtime_api.h>
 #include<cuda_runtime.h>
-#include"../include/Cell.hpp"
-#include"../include/Tissue.hpp"
-#include"../include/DPMCudaKernel.cuh"
+#include"Cell.hpp"
+#include"Tissue.hpp"
+#include"DPMCudaKernel.cuh"
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
