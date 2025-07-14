@@ -169,6 +169,7 @@ void init_Cell3D(py::module &m){
     .def_readwrite("Kv",&cudaDPM::Cell3D::Kv)
     .def_readwrite("Ka",&cudaDPM::Cell3D::Ka)
     .def_readwrite("Kb",&cudaDPM::Cell3D::Kv)
+    .def_readwrite("idealForce",&cudaDPM::Cell3D::idealForce)
     .def_readwrite("Verticies",&cudaDPM::Cell3D::Verticies)
     .def_readwrite("FaceIndices",&cudaDPM::Cell3D::FaceIndices)
     .def("GetVolume",&cudaDPM::Cell3D::GetVolume)

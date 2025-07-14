@@ -460,7 +460,7 @@ __global__ void cuSlipBondAttraction(int NCELLS, bool PBC,float L,float Kat, cud
       }
       float ftmp = dist/Cells[ci].l0 * Kat;
       float f0 = Cells[ci].idealForce;
-      float lifetime = std::exp(-std::fabs(ftmp)/f0) + std::exp(-std::pow((std::fabs(ftmp)-f0)/f0,2));
+      float lifetime = glm::exp(-glm::abs(ftmp)/f0) + glm::exp(-glm::pow((glm::abs(ftmp)-f0)/f0,2));
       if(lifetime < 1e-8){
         continue;
       }
@@ -499,7 +499,7 @@ __global__ void cuCatchBondAttraction(int NCELLS,bool PBC, float L ,float Kat, c
       }
       float ftmp = dist/Cells[ci].l0 * Kat;
       float f0 = Cells[ci].idealForce;
-      float lifetime = std::exp(-std::fabs(ftmp)/f0);
+      float lifetime = glm::exp(-glm::abs(ftmp)/f0);
       if(lifetime < 1e-8) continue;
       ftmp /= lifetime;
       glm::vec3 force = 0.5f * ftmp * glm::normalize(rij);
