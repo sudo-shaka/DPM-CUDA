@@ -110,21 +110,6 @@ __device__ void cuVolumeForceUpdate(int NCELLS, cudaDPM::Cell3D *Cells, cudaDPM:
   glm::vec3 f1 = -Kv * volumeStrain * grad1 / 6.0f;
   glm::vec3 f2 = -Kv * volumeStrain * grad2 / 6.0f;
   
-  /*
-  Verts[i0].Fx += f0.x;
-  Verts[i0].Fy += f0.y;
-  Verts[i0].Fz += f0.z;
-
-  Verts[i1].Fx += f1.x;
-  Verts[i1].Fy += f1.y;
-  Verts[i1].Fz += f1.z;
-
-  Verts[i2].Fx += f2.x;
-  Verts[i2].Fy += f2.y;
-  Verts[i2].Fz += f2.z;
-  */
-
-
   atomicAdd(&Verts[i0].Fx,f0.x);
   atomicAdd(&Verts[i0].Fy,f0.y);
   atomicAdd(&Verts[i0].Fz,f0.z);
@@ -141,42 +126,43 @@ __device__ void cuVolumeForceUpdate(int NCELLS, cudaDPM::Cell3D *Cells, cudaDPM:
 
 __device__ void cuSurfaceAreaForceUpdate(int NCELLS, cudaDPM::Cell3D *Cells, cudaDPM::Vertex3D *Verts, glm::ivec3 *Faces, int offset){
   //surface area forces
+  
   int ci = blockIdx.x + offset;
   if(Cells[ci].Ka < 1e-6f || ci >= NCELLS){
     return;
   }
-  glm::ivec3 face = Faces[threadIdx.x];
+  glm::ivec3 face = Faces[threadIdx.x]; // assume per-cell face list
 
-  int i0 = ci * Cells[ci].NV + face.x;
-  int i1 = ci * Cells[ci].NV + face.y;
-  int i2 = ci * Cells[ci].NV + face.z;
+int i0 = ci * Cells[ci].NV + face.x;
+int i1 = ci * Cells[ci].NV + face.y;
+int i2 = ci * Cells[ci].NV + face.z;
 
-  auto inds = glm::ivec3(i0,i1,i2);
+glm::vec3 P0 = {Verts[i0].X, Verts[i0].Y, Verts[i0].Z};
+glm::vec3 P1 = {Verts[i1].X, Verts[i1].Y, Verts[i1].Z};
+glm::vec3 P2 = {Verts[i2].X, Verts[i2].Y, Verts[i2].Z};
 
-  glm::vec3 P0 = {Verts[i0].X, Verts[i0].Y, Verts[i0].Z};
-  glm::vec3 P1 = {Verts[i1].X, Verts[i1].Y, Verts[i1].Z};
-  glm::vec3 P2 = {Verts[i2].X, Verts[i2].Y, Verts[i2].Z};
-  glm::vec3 lv[3] = {
+glm::vec3 edges[3] = {
     P1 - P0,
     P2 - P1,
     P0 - P2
-  };
-  for(int j=0; j < 3; j++){
-    float len = glm::length(lv[j]);
-    glm::vec3 u = lv[j]/len;
-    float dli = len/Cells[ci].l0 - 1.0f;
+};
 
-    int j_prev = (j+2) % 3;
-    glm::vec3 force = Cells[ci].Ka * (dli*u-(glm::length(lv[j_prev])/Cells[ci].l0 - 1.0f)*(lv[j_prev]/glm::length(lv[j_prev])));
+int indices[3] = {i0, i1, i2};
 
-    /*
-    Verts[inds[j]].Fx += force.x;
-    Verts[inds[j]].Fy += force.y;
-    Verts[inds[j]].Fz += force.z;
-    */
-    atomicAdd(&Verts[inds[j]].Fx,force.x);
-    atomicAdd(&Verts[inds[j]].Fy,force.y);
-    atomicAdd(&Verts[inds[j]].Fz,force.z);
+for (int j = 0; j < 3; j++) {
+    glm::vec3 lv = edges[j];
+    float len = glm::length(lv);
+    if (len < 1e-8f) continue;
+
+    glm::vec3 u = lv / len;
+    float dli = len / Cells[ci].l0 - 1.0f;
+
+    glm::vec3 force = Cells[ci].Ka * dli * u;
+
+    // Safe atomic add
+    atomicAdd(&Verts[indices[j]].Fx, force.x);
+    atomicAdd(&Verts[indices[j]].Fy, force.y);
+    atomicAdd(&Verts[indices[j]].Fz, force.z);
   }
 }
 
@@ -214,11 +200,6 @@ __device__ void cuSurfaceAdhesionUpdate(int NCELLS, cudaDPM::Cell3D *Cells, cuda
     }
   }
   for(int i=0;i<3;i++){
-    /*
-    Verts[inds[i]].Fx += forces[i].x;
-    Verts[inds[i]].Fy += forces[i].y;
-    Verts[inds[i]].Fz += forces[i].z;
-    */
     atomicAdd(&Verts[inds[i]].Fx,forces[i].x);
     atomicAdd(&Verts[inds[i]].Fy,forces[i].y);
     atomicAdd(&Verts[inds[i]].Fz,forces[i].z);
@@ -227,17 +208,17 @@ __device__ void cuSurfaceAdhesionUpdate(int NCELLS, cudaDPM::Cell3D *Cells, cuda
 
 __global__ void cuSimpleSpringAttraction(int NCELLS, bool PBC, float L, float Kat, cudaDPM::Cell3D *Cells, cudaDPM::Vertex3D *Verts, int offset){
   int ci = blockIdx.x+offset;
-  if(ci > NCELLS) return;
+  if(ci >= NCELLS) return;
   int vi = threadIdx.x + ci * Cells[ci].NV;
   float dist;
   float l0 = Cells[ci].l0;
   glm::vec3 PI = glm::vec3(Verts[vi].X,Verts[vi].Y,Verts[vi].Z);
   for(int cj = 0; cj < NCELLS;cj++){
     if(cj==ci){
-      return;
+      continue;
     }
     for(int j=0;j<Cells[cj].NV;j++){
-      int vj = threadIdx.x + cj * Cells[ci].NV;
+      int vj = threadIdx.x + cj * Cells[cj].NV;
       glm::vec3 PJ = glm::vec3(Verts[vj].X,Verts[vj].Y,Verts[vj].Z);
       glm::vec3 rij = PJ-PI;
       if(PBC){
@@ -248,22 +229,12 @@ __global__ void cuSimpleSpringAttraction(int NCELLS, bool PBC, float L, float Ka
         continue;
       }
       glm::vec3 force = Kat * 0.5f * ((dist/l0)-1.0f) * glm::normalize(rij);
-      /*
-      Verts[vi].Fx += force.x;
-      Verts[vi].Fy += force.y;
-      Verts[vi].Fz += force.z;
-      Verts[vj].Fx -= force.x;
-      Verts[vj].Fy -= force.y;
-      Verts[vj].Fz -= force.z;
-      */
-      
       atomicAdd(&Verts[vi].Fx,force.x);
       atomicAdd(&Verts[vi].Fy,force.y);
       atomicAdd(&Verts[vi].Fz,force.z);
       atomicAdd(&Verts[vj].Fx,-force.x);
       atomicAdd(&Verts[vj].Fy,-force.y);
       atomicAdd(&Verts[vj].Fz,-force.z);
-      
     } 
   }
 }
@@ -276,7 +247,7 @@ __global__ void cuSlipBondAttraction(int NCELLS, bool PBC,float L,float Kat, cud
   glm::vec3 PI = glm::vec3(Verts[vi].X,Verts[vi].Y,Verts[vi].Z);
   for(int cj = 0; cj < NCELLS;cj++){
     if(cj==ci){
-      return;
+      continue;
     }
     for(int j=0;j<Cells[cj].NV;j++){
       int vj = threadIdx.x + cj * Cells[ci].NV;
@@ -297,22 +268,12 @@ __global__ void cuSlipBondAttraction(int NCELLS, bool PBC,float L,float Kat, cud
       }
       ftmp /= lifetime;
       glm::vec3 force = 0.5f * ftmp * glm::normalize(rij);
-      ///*
       atomicAdd(&Verts[vi].Fx , force.x);
       atomicAdd(&Verts[vi].Fy , force.y);
       atomicAdd(&Verts[vi].Fz , force.z);
       atomicAdd(&Verts[vj].Fx , -force.x);
       atomicAdd(&Verts[vj].Fy , -force.y);
       atomicAdd(&Verts[vj].Fz , -force.z);
-      //*/
-      /*
-      Verts[vi].Fx += force.x;
-      Verts[vi].Fy += force.y;
-      Verts[vi].Fz += force.z;
-      Verts[vj].Fx -= force.x;
-      Verts[vj].Fy -= force.y;
-      Verts[vj].Fz -= force.z;
-      */
     } 
   }
 }
@@ -328,7 +289,7 @@ __global__ void cuCatchBondAttraction(int NCELLS,bool PBC, float L ,float Kat, c
   glm::vec3 PI = glm::vec3(Verts[vi].X,Verts[vi].Y,Verts[vi].Z);
   for(int cj = 0; cj < NCELLS;cj++){
     if(cj==ci){
-      return;
+      continue;
     }
     for(int j=0;j<Cells[cj].NV;j++){
       int vj = threadIdx.x + cj * Cells[ci].NV;
@@ -348,23 +309,13 @@ __global__ void cuCatchBondAttraction(int NCELLS,bool PBC, float L ,float Kat, c
       ftmp /= lifetime;
       glm::vec3 force = 0.5f * ftmp * glm::normalize(rij);
 
-      /*
-      Verts[vi].Fx+=force.x;
-      Verts[vi].Fy+=force.y;
-      Verts[vi].Fz+=force.z;
-      Verts[vj].Fx-=force.x;
-      Verts[vj].Fy-=force.y;
-      Verts[vj].Fz-=force.z;
-      */
 
-//      /*
       atomicAdd(&Verts[vi].Fx,force.x);
       atomicAdd(&Verts[vi].Fy,force.y);
       atomicAdd(&Verts[vi].Fz,force.z);
       atomicAdd(&Verts[vj].Fx,-force.x);
       atomicAdd(&Verts[vj].Fy,-force.y);
       atomicAdd(&Verts[vj].Fz,-force.z);
-  //    */
     } 
   }
 }
@@ -384,16 +335,9 @@ __global__ void cuEulerUpdate3D(float dt, int NCELLS, int NV, cudaDPM::Vertex3D 
   int ci = blockIdx.x + offset;
   if(ci >= NCELLS) return;
   int vi = threadIdx.x + ci * NV;
-  ///*
-  atomicAdd(&Verts[vi].X,dt*Verts[vi].Fx);
-  atomicAdd(&Verts[vi].Y,dt*Verts[vi].Fy);
-  atomicAdd(&Verts[vi].Z,dt*Verts[vi].Fz);
-  //*/
-  /*
   Verts[vi].X += Verts[vi].Fx*dt;
   Verts[vi].Y += Verts[vi].Fy*dt;
   Verts[vi].Z += Verts[vi].Fz*dt;
-  */
   
 }
 
@@ -422,8 +366,7 @@ __global__ void cuRepellingForce3D(int NCELLS, bool PBC, float L, float Kc, cuda
   auto Force = glm::vec3{0.0f};
   glm::vec3 p = glm::vec3(Verts[vi].X, Verts[vi].Y, Verts[vi].Z);
   for(int cj=0;cj<NCELLS;cj++){
-    auto COMJ = glm::vec3(Cells[cj].COMX,Cells[cj].COMY,Cells[cj].COMY);
-    shift *=0;
+    auto COMJ = glm::vec3(Cells[cj].COMX,Cells[cj].COMY,Cells[cj].COMZ);
     if(PBC) shift = L * glm::round((COM-COMJ)/L);
     auto newP = p - shift;
     if(ci==cj) continue;
@@ -449,11 +392,14 @@ __global__ void cuRepellingForce3D(int NCELLS, bool PBC, float L, float Kc, cuda
     Force += winding_number * 0.5f * Kc * glm::normalize(COM-p);
   }
 
-  /*Verts[vi].Fx += Force.x;
+  ///*
+  Verts[vi].Fx += Force.x;
   Verts[vi].Fy += Force.y;
   Verts[vi].Fz += Force.z;
-  */
+  //*/
+  /*
   atomicAdd(&Verts[vi].Fx,Force.x);
   atomicAdd(&Verts[vi].Fy,Force.y);
   atomicAdd(&Verts[vi].Fz,Force.z);
+  */
 }

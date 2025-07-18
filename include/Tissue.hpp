@@ -8,9 +8,9 @@
  *        Version:  1.0
  *        Created:  06/02/2022 08:17:43 AM
  *       Revision:  none
- *       Compiler:  gcc
+ *       Compiler:  nvcc
  *
- *         Author:  YOUR NAME (),
+ *         Author:  Shaka,
  *   Organization:  Yale University
  *
  * =====================================================================================

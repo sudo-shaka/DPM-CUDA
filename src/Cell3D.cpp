@@ -8,9 +8,9 @@
  *        Version:  1.0
  *        Created:  06/01/2022 04:56:58 PM
  *       Revision:  none
- *       Compiler:  gcc
+ *       Compiler:  nvcc
  *
- *         Author:  YOUR NAME (),
+ *         Author:  shaka,
  *   Organization:
  *
  * =====================================================================================

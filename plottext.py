@@ -44,7 +44,7 @@ def main():
         return
     print(args[3]);
     files = sorted(glob(args[3]+"*.csv"))
-    num_cores = int(multiprocessing.cpu_count())
+    num_cores = int(multiprocessing.cpu_count())-1
     for i in progressbar(range(0,len(files),num_cores)):
         chunk = files[i:i+num_cores]
         bound_func = partial(plot, L=float(args[1]), r = int(args[2]))

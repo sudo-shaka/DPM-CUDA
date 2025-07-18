@@ -8,7 +8,7 @@
  *        Version:  1.0
  *        Created:  06/02/2022 10:48:51 AM
  *       Revision:  none
- *       Compiler:  gcc
+ *       Compiler:  nvcc
  *
  *         Author:  Shaka X
  *   Organization:  Yale University
