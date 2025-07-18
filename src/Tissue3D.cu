@@ -48,7 +48,6 @@ namespace cudaDPM{
     NCELLS = Cells.size();
     float volume = 0.0;
     VertDOF = Cells[0].NV * NCELLS;
-    TriDOF = Cells[0].ntriangles * NCELLS;
     for(int i=0;i<NCELLS;i++){
       volume += Cells[i].GetVolume();
     }
