@@ -28,12 +28,10 @@
 namespace cudaDPM{
   class Tissue3D{
     public:
-      std::vector<int> CellIdx; //vector to indicate the verticies that correspond to which cell
       std::vector<cudaDPM::Cell3D> Cells; //List of cells
       float phi0; //Preffered packing fraction
       int NCELLS;
       int VertDOF;
-      int TriDOF;
       float Kre;
       float Kat;
       float L;
