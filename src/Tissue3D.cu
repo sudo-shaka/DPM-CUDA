@@ -301,13 +301,8 @@ namespace cudaDPM{
     //Give data to cuda
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop,0);
-    /*if(NCELLS > prop.maxBlocksPerMultiProcessor){
-      std::cout << "Exceded number of cells allowed on cuda device" << std::endl;
-      cudaFree(VertsCuda); cudaFree(CellsCuda); cudaFree(TriCuda);
-      exit(0);
-    }*/
     if(Cells[0].ntriangles > prop.maxThreadsPerBlock){
-      std::cout << "Exceded number of faces allowed on cuda device" << std::endl;
+      std::cout << "\nExceded number of faces allowed on cuda device" << std::endl;
       cudaFree(VertsCuda); cudaFree(CellsCuda); cudaFree(TriCuda);
       exit(0);
     }
@@ -323,9 +318,9 @@ namespace cudaDPM{
         cuEulerUpdate3D<<<NCELLS,NV>>>(dt,NCELLS,NV,VertsCuda,offset);
         cudaDeviceSynchronize();
         cudaError_t err = cudaGetLastError();
-        /*if(err != cudaSuccess){
+        if(err != cudaSuccess){
             std::cout << "\nCUDA Error: INTEGRATION: " << cudaGetErrorString(err) << std::endl;
-        }*/
+        }
       }
     }
     ExtractCudaMemory();
@@ -335,6 +330,24 @@ namespace cudaDPM{
   }
 
   void Tissue3D::exportForcesToCSV(std::string filename){
+    std::ofstream file;
+    file.open(filename);
+    for(int i=0;i<NCELLS;i++){
+      file << "Cell_" << i << ",X,";
+      for(auto& vert : Cells[i].Verticies){
+        file << vert.Fx << ",";
+      }
+      file << "\nCell_" << i << ",Y,";
+      for(auto& vert : Cells[i].Verticies){
+        file << vert.Fy << ",";
+      }
+      file << "\nCell_" << i << ",Z,";
+      for(auto& vert : Cells[i].Verticies){
+        file << vert.Fz << ",";
+      }
+      file << std::endl;
+    }
+    file.close();
 
   }
 
