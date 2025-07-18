@@ -16,19 +16,12 @@
  * =====================================================================================
  */
 
-#ifndef __Cells__
-#define __Cells__
+#ifndef __3DCell__
+#define __3DCell__
 
 #include<vector>
 #include<glm/vec3.hpp>
 namespace cudaDPM{
-  struct Vertex2D{
-    float X; float Y;
-    float Vx; float Vy;
-    float Fx; float Fy;
-    Vertex2D();
-    Vertex2D(float x, float y);
-  };
   struct Vertex3D{
     float X; float Y; float Z;
     float Vx; float Vy; float Vz;
@@ -39,45 +32,6 @@ namespace cudaDPM{
     float normPos();
     void normalizePos();
   };
-  class Cell2D{
-    public:
-      int NDIM;
-      int NV;
-      float calA0;
-      float l0;
-      float r0;
-      float v0;
-      float Ka;
-      float Kb;
-      float Kl;
-      float Area;
-      float COMX;
-      float COMY;
-      std::vector<int> ip1;
-      std::vector<int> im1;
-      float vmin;
-      float Dr;
-      float Ds;
-      float a0;
-      float psi;
-      float U;
-      float Ks;
-      std::vector<float> l1;
-      std::vector<float> l2;
-      std::vector<float> radii;
-      std::vector<int> NearestVertexIdx;
-      std::vector<int> NearestCellIdx;
-      std::vector<Vertex2D> Verticies;
-      Cell2D(float x0, float y0,
-             float calA, int NV, float r0,
-             float ka, float kl, float kb);
-      Cell2D(std::vector<Vertex2D> Verticies);
-
-      void SetCellVelocity(float v);
-      void UpdateDirectorDiffusion(float dt);
-      float GetArea();
-  };
-
   class Cell3D{
     public:
       int NDIM;

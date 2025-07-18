@@ -19,9 +19,10 @@
 #include<cuda.h>
 #include<cuda_runtime_api.h>
 #include<cuda_runtime.h>
-#include"Cell.hpp"
+#include"Cell2D.hpp"
+#include"Cell3D.hpp"
 #include"Tissue.hpp"
-#include"DPMCudaKernel.cuh"
+#include"cudaKernel.cuh"
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
@@ -191,6 +192,8 @@ void init_Tissue3D(py::module &m){
     .def("EulerUpdate",&cudaDPM::Tissue3D::EulerUpdate)
     .def("disperse3D",&cudaDPM::Tissue3D::disperse3D)
     .def("disperse2D",&cudaDPM::Tissue3D::disperse2D)
+    .def("ExportForces",&cudaDPM::Tissue3D::exportForcesToCSV)
+    .def("ExportPositions",&cudaDPM::Tissue3D::exportPositionsToCSV)
     ;
 }
 namespace dpm {

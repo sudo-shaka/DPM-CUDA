@@ -46,17 +46,20 @@ def PlotT3D(Tissue):
 def main():
   Cell=cudaDPM.Cell3D(x0=7.0,y0=6.0,z0=0,CalA0=1.05,VertexRecursion=2,r0=2.0,Kv=5,Ka=1.5)
   Cell.Ks = 5.0;
-  Tissue = cudaDPM.Tissue3D([Cell]*16,0.7)
+  Cell.idealForce = 0.5
+  Tissue = cudaDPM.Tissue3D([Cell]*8,0.65)
   Tissue.disperse2D()
   Tissue.Kre = 10.0;
-  Tissue.Kat = 2.0;
+  Tissue.Kat = 1.0;
+  Tissue.setAttractionMethod("SimpleSpring")
 
   print("Simulation doesn't take that long. It's plotting that takes forever")
   print("Saving data to /tmp/")
-  nout = 10
+  nout = 100
+  print(Tissue.BoxLength)
   with imageio.get_writer('/tmp/out.gif',mode='I') as writer:
     for i in progressbar(range(nout)):
-      Tissue.EulerUpdate(1000,0.005);
+      Tissue.EulerUpdate(200,0.005);
       PlotT3D(Tissue)
       filename = '/tmp/'+str(i)+'.png'
       plt.savefig(filename)

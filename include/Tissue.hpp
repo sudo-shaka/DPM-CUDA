@@ -19,7 +19,8 @@
  #ifndef __TISSUE__
  #define __TISSUE__
 #include<vector>
-#include"Cell.hpp"
+#include"Cell3D.hpp"
+#include"Cell2D.hpp"
 #include<string>
 #include<functional>
 #include<unordered_map>
@@ -37,23 +38,27 @@ namespace cudaDPM{
       float Kat;
       float L;
       bool PBC;
-      std::unordered_map<std::string, std::function<void(Tissue3D*)>> methods{
-        {"SimpleSpring",&Tissue3D::SimpleSpringAttraction},
-        {"CatchBond",&Tissue3D::CatchBondAttraction},
-        {"SlipBond",&Tissue3D::SlipBondAttraction}
+      std::unordered_map<std::string, std::function<void(Tissue3D*,int)>> methods{
+        {"SimpleSpring",[](Tissue3D *t, int offset){t->SimpleSpringAttraction(offset);}},
+        {"CatchBond",[](Tissue3D *t, int offset){t->CatchBondAttraction(offset);}},
+        {"SlipBond",[](Tissue3D *t,int offset){t->SlipBondAttraction(offset);}}
       };
       void setAttractionMethod(std::string);
-      void SimpleSpringAttraction();
-      void CatchBondAttraction();
-      void SlipBondAttraction();
+      void SimpleSpringAttraction(int offset);
+      void CatchBondAttraction(int offset);
+      void SlipBondAttraction(int offset);
       Tissue3D(std::vector<cudaDPM::Cell3D> cells, float phi0);
       void EulerUpdate(int nsteps, float dt);
       void disperse3D();
       void disperse2D();
+      void SetUpCudaMemory();
+      void ExtractCudaMemory();
+      void exportForcesToCSV(std::string filename);
+      void exportPositionsToCSV(std::string filename);
 
     private:
       std::string attMethodName = "SimpleSpring";
-      std::function<void()> attractionMethod;
+      std::function<void(int offset)> attractionMethod;
       cudaDPM::Cell3D* CellsCuda = NULL;
       cudaDPM::Vertex3D* VertsCuda = NULL;
       glm::ivec3* TriCuda = NULL;

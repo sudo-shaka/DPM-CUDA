@@ -8,12 +8,17 @@ if not torch.cuda.is_available():
     print('CUDA device not found.')
     exit(0)
 
+sources = []
+[sources.append(k) for k in glob("src/*")]
+[sources.append(k) for k in glob("kernels/*")]
+print(sources)
+
 setup(
     name='cudaDPM',
     ext_modules=[
         CUDAExtension(
             'cudaDPM', 
-            sorted(glob("src/*c*")),
+            sorted(sources),
             include_dirs=["include/"],
         ),
     ],

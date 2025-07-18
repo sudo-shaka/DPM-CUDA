@@ -6,13 +6,16 @@ from progressbar import progressbar
 
 
 def EulerTest(nout,nsteps, dt, ncells):
-  C0 = cudaDPM.Cell2D(0.0,0.0,1.4,30,2.4,0.1,1.0,0.05)
-  C1 = cudaDPM.Cell2D(0.0,0.0,1.37,25,2.0,0.1,1.0,0.05)
+  C0 = cudaDPM.Cell2D(0.0,0.0,1.4,50,2.4,0.1,1.0,0.01)
+  C1 = cudaDPM.Cell2D(0.0,0.0,1.37,50,2.0,0.1,1.0,0.1)
   T = cudaDPM.Tissue2D([C0,C1]*int(ncells/2),0.8)
+  print("starting random dispersion")
   T.disperse();
   T.Kc = 2.0
+  print("done.")
 
   #The reset is just plotting...
+  print("starting integration")
   print("Saving data to /tmp/")
   with imageio.get_writer('/tmp/cuTest2d.gif',mode='I') as writer:
     for s in progressbar(range(nout)):
@@ -43,4 +46,4 @@ def EulerTest(nout,nsteps, dt, ncells):
       T.EulerUpdate(nsteps,dt)
 
 if __name__ == "__main__":
-  EulerTest(100,2500,0.001,150)
+  EulerTest(100,2500,0.001,16)
