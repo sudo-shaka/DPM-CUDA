@@ -19,7 +19,7 @@ setup(
         CUDAExtension(
             'cudaDPM', 
             sorted(sources),
-            include_dirs=["include/"],
+            include_dirs=["include"],
         ),
     ],
     cmdclass={
