@@ -6,7 +6,8 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 pip install setuptools
-pip install torch torchvision
+pip install torch 
+pip install torchvision
 pip install progressbar2
 pip install matplotlib
 pip install pandas
